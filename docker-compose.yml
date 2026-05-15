@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  # Config Server (Replica Set de 1 nodo para el cluster metadata)
+  configsvr:
+    image: mongo:6.0
+    container_name: configsvr
+    command: mongod --configsvr --replSet configRS --port 27019 --bind_ip_all
+    ports:
+      - "27019:27019"
+    volumes:
+      - configsvr_data:/data/db
+
+  # Shard 1 - Replica Set (3 Nodos)
+  mongo1:
+    image: mongo:6.0
+    container_name: mongo1
+    command: mongod --shardsvr --replSet shard1RS --port 27018 --bind_ip_all
+    ports:
+      - "27018:27018"
+    volumes:
+      - shard1_mongo1_data:/data/db
+
+  mongo2:
+    image: mongo:6.0
+    container_name: mongo2
+    command: mongod --shardsvr --replSet shard1RS --port 27020 --bind_ip_all
+    ports:
+      - "27020:27020"
+    volumes:
+      - shard1_mongo2_data:/data/db
+
+  mongo3:
+    image: mongo:6.0
+    container_name: mongo3
+    command: mongod --shardsvr --replSet shard1RS --port 27021 --bind_ip_all
+    ports:
+      - "27021:27021"
+    volumes:
+      - shard1_mongo3_data:/data/db
+
+  # Shard 2 - Single Node (replicaset de 1 nodo para sharding)
+  mongo4:
+    image: mongo:6.0
+    container_name: mongo4
+    command: mongod --shardsvr --replSet shard2RS --port 27022 --bind_ip_all
+    ports:
+      - "27022:27022"
+    volumes:
+      - shard2_mongo4_data:/data/db
+
+  # Mongos Router
+  mongos:
+    image: mongo:6.0
+    container_name: mongos
+    command: mongos --configdb configRS/configsvr:27019 --port 27017 --bind_ip_all
+    ports:
+      - "27017:27017"
+    depends_on:
+      - configsvr
+      - mongo1
+      - mongo4
+
+volumes:
+  configsvr_data:
+  shard1_mongo1_data:
+  shard1_mongo2_data:
+  shard1_mongo3_data:
+  shard2_mongo4_data:
