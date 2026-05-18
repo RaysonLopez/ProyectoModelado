@@ -4,41 +4,47 @@ from pymongo import MongoClient
 import pprint
 
 # --- CONFIGURACIÓN DE CONEXIÓN ---
-print("Conectando a MongoDB (Mongos Router) en localhost:27017...")
-client = MongoClient('mongodb://localhost:27017/')
+print("Conectando a MongoDB (Mongos Router) en localhost:27018...")
+client = MongoClient('mongodb://localhost:27018/')
 db = client['GA_Analytics_DB']
 collection = db['sessions']
 
 # --- FASE 1: INGESTA DE DATOS ---
 def procesar_e_ingestar_datos():
-    print("\n--- INGESTA DE DATOS ---")
+    print("\n--- FASE 2: ETL (Extracción, Transformación, Carga) ---")
     json_cols = ['device', 'geoNetwork', 'totals', 'trafficSource']
-    
-    def parse_json(column):
-        return column.apply(lambda x: json.loads(x) if pd.notnull(x) else {})
+    tamano_lote = 50000
+    total_insertados = 0
 
     try:
-        print("Leyendo train.csv...")
-        # Nota: asumiendo que el archivo se llama train.csv y está en la misma carpeta. 
-        # Si no existe, este paso saltará al bloque except.
-        df = pd.read_csv('train.csv', dtype={'fullVisitorId': 'str'}, nrows=50000) # Limitado a 50k para no saturar memoria en local
-        
-        print("Parseando columnas JSON...")
-        for col in json_cols:
-            df[col] = parse_json(df[col])
+        # 1. Primero limpiamos la colección (fuera del ciclo, para no borrar en cada lote)
+        collection.delete_many({})
+        print("Colección limpia. Iniciando lectura por lotes...")
+
+        # 2. Leemos todo el archivo CSV, pero entregando lotes de 50k
+        for chunk in pd.read_csv('train.csv', dtype={'fullVisitorId': 'str'}, chunksize=tamano_lote):
             
-        records = df.to_dict(orient='records')
-        
-        print("Insertando datos en MongoDB...")
-        # Clear existing data just in case during testing
-        collection.delete_many({}) 
-        
-        result = collection.insert_many(records)
-        print(f"Se insertaron {len(result.inserted_ids)} documentos correctamente.")
+            # 3. Parseamos las columnas JSON en este lote específico
+            for col in json_cols:
+                chunk[col] = chunk[col].apply(lambda x: json.loads(x) if pd.notnull(x) else {})
+                
+            # 4. Reemplazamos NaN por None para compatibilidad con MongoDB
+            chunk = chunk.replace({np.nan: None})
+            
+            # 5. Convertimos a diccionario e insertamos el lote
+            records = chunk.to_dict(orient='records')
+            collection.insert_many(records)
+            
+            # 6. Actualizamos y mostramos el progreso en vivo
+            total_insertados += len(records)
+            print(f"Lote insertado. Total subido hasta ahora: {total_insertados} sesiones...")
+
+        print(f"¡Ingesta masiva completada exitosamente! {total_insertados} sesiones registradas en tu clúster distribuido.")
+
     except FileNotFoundError:
-        print("Advertencia: train.csv no encontrado en el directorio. Por favor, asegúrate de descargarlo e incluirlo para correr la ingesta masiva real.")
+        print("Archivo train.csv no encontrado. Asegúrese de descargarlo.")
     except Exception as e:
-        print(f"Error durante la lectura del CSV: {e}")
+        print(f"Ocurrió un error inesperado: {e}")
 
 # --- FASE 2: OPERACIONES CRUD INICIALES ---
 def operaciones_crud():
